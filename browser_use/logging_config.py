@@ -8,6 +8,35 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from browser_use.config import CONFIG
+from browser_use.utils import is_windows_legacy_encoding, sanitize_emoji
+
+
+class EmojiSanitizingFilter(logging.Filter):
+	"""Logging filter that sanitizes emoji characters on Windows with legacy encodings.
+
+	This filter replaces emoji characters with ASCII equivalents to prevent
+	UnicodeEncodeError on Windows systems with cp1251 or similar encodings.
+	"""
+
+	def __init__(self, name: str = ''):
+		super().__init__(name)
+		self._should_sanitize = is_windows_legacy_encoding()
+
+	def filter(self, record: logging.LogRecord) -> bool:
+		if self._should_sanitize:
+			# Sanitize the message
+			if isinstance(record.msg, str):
+				record.msg = sanitize_emoji(record.msg)
+			# Also sanitize any string args
+			if record.args:
+				sanitized_args = []
+				for arg in record.args:
+					if isinstance(arg, str):
+						sanitized_args.append(sanitize_emoji(arg))
+					else:
+						sanitized_args.append(arg)
+				record.args = tuple(sanitized_args)
+		return True  # Always allow the record through
 
 
 def addLoggingLevel(levelName, levelNum, methodName=None):
@@ -113,6 +142,10 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 
 	# Setup single handler for all loggers
 	console = logging.StreamHandler(stream or sys.stdout)
+
+	# Add emoji sanitizing filter for Windows compatibility (BUG-001 fix)
+	emoji_filter = EmojiSanitizingFilter()
+	console.addFilter(emoji_filter)
 
 	# Determine the log level to use first
 	if log_type == 'result':

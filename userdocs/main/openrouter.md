@@ -310,6 +310,43 @@ async def main():
 asyncio.run(main())
 ```
 
+## Расширенная детекция провайдеров (v0.0.3+)
+
+Browser-Use автоматически определяет провайдера по имени модели и применяет соответствующую оптимизацию schema.
+
+### Поддерживаемые провайдеры
+
+| Провайдер | Паттерны | Профиль |
+|-----------|----------|---------|
+| Anthropic | `anthropic/`, `claude` | anthropic (без validation constraints) |
+| Google | `google/`, `gemini` | google |
+| DeepSeek | `deepseek/` | deepseek |
+| OpenAI | `openai/`, `gpt`, `o1` | full |
+| Meta | `meta/`, `llama` | full |
+| Mistral | `mistral/`, `mixtral` | full |
+
+### Использование ProviderType
+
+```python
+from browser_use.llm.schema import ProviderType, SchemaOptimizer
+
+# Автоопределение провайдера
+provider = ProviderType.from_model_name('google/gemini-2.0-flash')
+print(provider)  # ProviderType.GOOGLE
+
+# Получение профиля оптимизации
+profile = provider.get_schema_profile()
+print(profile)  # SchemaOptimizationProfile.GOOGLE
+
+# Создание schema для провайдера
+from pydantic import BaseModel
+
+class MyModel(BaseModel):
+    field: str
+
+schema = SchemaOptimizer.create_schema_for_provider(MyModel, 'anthropic/claude-4.5-sonnet')
+```
+
 ## Дополнительные ресурсы
 
 - OpenRouter Docs: https://openrouter.ai/docs
@@ -320,4 +357,5 @@ asyncio.run(main())
 ## Версия
 
 - Добавлено в версии: `0.0.2`
+- Расширенная детекция провайдеров: `0.0.3`
 - Последнее обновление: 2025-12-01

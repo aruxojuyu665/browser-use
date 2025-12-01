@@ -2,9 +2,100 @@
 Utilities for creating optimized Pydantic schemas for LLM usage.
 """
 
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
+
+
+class SchemaOptimizationProfile(Enum):
+	"""
+	Schema optimization profiles for different LLM providers.
+
+	Different providers have varying levels of JSON Schema support:
+	- FULL: Full JSON Schema with all validation constraints (OpenAI, etc.)
+	- ANTHROPIC: Remove validation constraints not supported by Anthropic
+	- GOOGLE: Google Gemini specific optimizations
+	- DEEPSEEK: DeepSeek specific optimizations (currently same as FULL)
+	- MINIMAL: Only basic types, maximum compatibility
+	"""
+
+	FULL = 'full'
+	ANTHROPIC = 'anthropic'
+	GOOGLE = 'google'
+	DEEPSEEK = 'deepseek'
+	MINIMAL = 'minimal'
+
+
+class ProviderType(Enum):
+	"""
+	LLM provider types for auto-detection.
+	"""
+
+	OPENAI = 'openai'
+	ANTHROPIC = 'anthropic'
+	GOOGLE = 'google'
+	DEEPSEEK = 'deepseek'
+	META = 'meta'
+	MISTRAL = 'mistral'
+	UNKNOWN = 'unknown'
+
+	@classmethod
+	def from_model_name(cls, model: str) -> 'ProviderType':
+		"""
+		Detect provider type from model name.
+
+		Args:
+			model: The model name/identifier (e.g., 'anthropic/claude-4.5-sonnet')
+
+		Returns:
+			ProviderType enum value
+		"""
+		model_lower = model.lower()
+
+		# Anthropic detection
+		if 'anthropic' in model_lower or 'claude' in model_lower:
+			return cls.ANTHROPIC
+
+		# Google detection
+		if 'google' in model_lower or 'gemini' in model_lower:
+			return cls.GOOGLE
+
+		# DeepSeek detection
+		if 'deepseek' in model_lower:
+			return cls.DEEPSEEK
+
+		# OpenAI detection
+		if 'openai' in model_lower or 'gpt' in model_lower or 'o1' in model_lower:
+			return cls.OPENAI
+
+		# Meta/Llama detection
+		if 'meta' in model_lower or 'llama' in model_lower:
+			return cls.META
+
+		# Mistral detection
+		if 'mistral' in model_lower or 'mixtral' in model_lower:
+			return cls.MISTRAL
+
+		return cls.UNKNOWN
+
+	def get_schema_profile(self) -> SchemaOptimizationProfile:
+		"""
+		Get the recommended schema optimization profile for this provider.
+
+		Returns:
+			SchemaOptimizationProfile enum value
+		"""
+		profile_map = {
+			ProviderType.ANTHROPIC: SchemaOptimizationProfile.ANTHROPIC,
+			ProviderType.GOOGLE: SchemaOptimizationProfile.GOOGLE,
+			ProviderType.DEEPSEEK: SchemaOptimizationProfile.DEEPSEEK,
+			ProviderType.OPENAI: SchemaOptimizationProfile.FULL,
+			ProviderType.META: SchemaOptimizationProfile.FULL,
+			ProviderType.MISTRAL: SchemaOptimizationProfile.FULL,
+			ProviderType.UNKNOWN: SchemaOptimizationProfile.FULL,
+		}
+		return profile_map.get(self, SchemaOptimizationProfile.FULL)
 
 
 class SchemaOptimizer:
@@ -226,3 +317,61 @@ class SchemaOptimizer:
 			Optimized schema suitable for Gemini structured output
 		"""
 		return SchemaOptimizer.create_optimized_json_schema(model)
+
+	@staticmethod
+	def create_schema_for_provider(
+		model: type[BaseModel],
+		provider: ProviderType | str,
+	) -> dict[str, Any]:
+		"""
+		Create an optimized schema for a specific provider.
+
+		This method auto-selects the appropriate optimization profile based on
+		the provider's known JSON Schema support limitations.
+
+		Args:
+			model: The Pydantic model to optimize
+			provider: Either a ProviderType enum or a model name string for auto-detection
+
+		Returns:
+			Optimized schema suitable for the specified provider
+
+		Example:
+			# Using ProviderType enum
+			schema = SchemaOptimizer.create_schema_for_provider(MyModel, ProviderType.ANTHROPIC)
+
+			# Using model name for auto-detection
+			schema = SchemaOptimizer.create_schema_for_provider(MyModel, 'anthropic/claude-4.5-sonnet')
+		"""
+		# Resolve provider type
+		if isinstance(provider, str):
+			provider_type = ProviderType.from_model_name(provider)
+		else:
+			provider_type = provider
+
+		# Get the optimization profile for this provider
+		profile = provider_type.get_schema_profile()
+
+		# Apply profile-specific optimizations
+		if profile == SchemaOptimizationProfile.ANTHROPIC:
+			# Anthropic doesn't support validation constraints
+			return SchemaOptimizer.create_optimized_json_schema(
+				model,
+				remove_validation_constraints=True,
+				remove_min_items=True,
+				remove_defaults=True,
+			)
+		elif profile == SchemaOptimizationProfile.GOOGLE:
+			# Google Gemini has its own requirements
+			return SchemaOptimizer.create_gemini_optimized_schema(model)
+		elif profile == SchemaOptimizationProfile.MINIMAL:
+			# Maximum compatibility - remove all optional constraints
+			return SchemaOptimizer.create_optimized_json_schema(
+				model,
+				remove_validation_constraints=True,
+				remove_min_items=True,
+				remove_defaults=True,
+			)
+		else:
+			# FULL, DEEPSEEK, and others - use full schema
+			return SchemaOptimizer.create_optimized_json_schema(model)

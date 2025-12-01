@@ -15,7 +15,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openrouter.serializer import OpenRouterMessageSerializer
-from browser_use.llm.schema import SchemaOptimizer
+from browser_use.llm.schema import ProviderType, SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
@@ -101,6 +101,15 @@ class ChatOpenRouter(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _get_provider_type(self) -> ProviderType:
+		"""
+		Detect the provider type based on model name.
+
+		Returns:
+		    ProviderType enum indicating the detected provider
+		"""
+		return ProviderType.from_model_name(self.model)
+
 	def _is_anthropic_model(self) -> bool:
 		"""
 		Detect if the model is from Anthropic based on model name.
@@ -108,8 +117,25 @@ class ChatOpenRouter(BaseChatModel):
 		Returns:
 		    True if model appears to be from Anthropic (contains 'anthropic' or 'claude')
 		"""
-		model_lower = self.model.lower()
-		return 'anthropic' in model_lower or 'claude' in model_lower
+		return self._get_provider_type() == ProviderType.ANTHROPIC
+
+	def _is_google_model(self) -> bool:
+		"""
+		Detect if the model is from Google based on model name.
+
+		Returns:
+		    True if model appears to be from Google (contains 'google' or 'gemini')
+		"""
+		return self._get_provider_type() == ProviderType.GOOGLE
+
+	def _is_deepseek_model(self) -> bool:
+		"""
+		Detect if the model is from DeepSeek based on model name.
+
+		Returns:
+		    True if model appears to be from DeepSeek (contains 'deepseek')
+		"""
+		return self._get_provider_type() == ProviderType.DEEPSEEK
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		"""Extract usage information from the OpenRouter response."""
@@ -175,25 +201,17 @@ class ChatOpenRouter(BaseChatModel):
 				)
 
 			else:
-				# Determine if we need Anthropic-compatible schema optimization
-				# Auto-detect or use explicit setting
-				use_anthropic_mode = (
-					self.anthropic_compatible_mode
-					if self.anthropic_compatible_mode is not None
-					else self._is_anthropic_model()
-				)
-
 				# Create a JSON schema for structured output
-				# Anthropic models don't support validation constraints (minimum, maximum, etc.)
-				if use_anthropic_mode:
-					schema = SchemaOptimizer.create_optimized_json_schema(
-						output_format,
-						remove_validation_constraints=True,
-						remove_min_items=True,
-						remove_defaults=True,
-					)
-				else:
+				# Use provider-aware schema optimization
+				if self.anthropic_compatible_mode is True:
+					# Explicitly force Anthropic mode
+					schema = SchemaOptimizer.create_schema_for_provider(output_format, ProviderType.ANTHROPIC)
+				elif self.anthropic_compatible_mode is False:
+					# Explicitly use full schema
 					schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+				else:
+					# Auto-detect based on model name (default)
+					schema = SchemaOptimizer.create_schema_for_provider(output_format, self.model)
 
 				response_format_schema: JSONSchema = {
 					'name': 'agent_output',

@@ -4,6 +4,7 @@ import os
 import platform
 import re
 import signal
+import sys
 import time
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
@@ -17,6 +18,128 @@ import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+# =============================================================================
+# Emoji to ASCII mapping for Windows cp1251 compatibility (BUG-001 fix)
+# =============================================================================
+EMOJI_TO_ASCII: dict[str, str] = {
+	# Status indicators
+	'✅': '[OK]',
+	'❌': '[ERROR]',
+	'⚠️': '[WARN]',
+	'⛔️': '[BLOCKED]',
+	'⛔': '[BLOCKED]',
+	'🛑': '[STOP]',
+	# Actions
+	'🔍': '[SEARCH]',
+	'🔗': '[LINK]',
+	'🎯': '[TARGET]',
+	'🔄': '[REFRESH]',
+	'▶️': '[>]',
+	'➡️': '[->]',
+	'⏳': '[WAIT]',
+	'⏱️': '[TIMER]',
+	# Objects
+	'📦': '[PKG]',
+	'📁': '[FILE]',
+	'📋': '[CLIP]',
+	'💾': '[SAVE]',
+	'🖼️': '[IMG]',
+	'📡': '[NET]',
+	'🔌': '[PLUG]',
+	'🗑️': '[DEL]',
+	'📤': '[UP]',
+	'📥': '[DOWN]',
+	# System
+	'🚀': '[START]',
+	'🔧': '[TOOL]',
+	'⚙️': '[GEAR]',
+	'💡': '[TIP]',
+	'🤖': '[AI]',
+	'🌐': '[WEB]',
+	'🖥️': '[PC]',
+	'🖱️': '[MOUSE]',
+	'⌨️': '[KB]',
+	# State
+	'🔒': '[LOCK]',
+	'🔓': '[UNLOCK]',
+	'🔴': '[RED]',
+	'🟢': '[GREEN]',
+	'👁️': '[VIEW]',
+	# Celebration
+	'🎉': '[YAY]',
+	'✨': '[*]',
+	'⭐': '[STAR]',
+	'🏆': '[WIN]',
+	'☁️': '[CLOUD]',
+}
+
+
+def sanitize_emoji(text: str) -> str:
+	"""Replace emojis with ASCII equivalents for Windows cp1251 compatibility.
+
+	This function handles the UnicodeEncodeError that occurs on Windows systems
+	with cp1251 encoding when logging messages contain emoji characters.
+
+	Args:
+		text: The text containing potential emoji characters
+
+	Returns:
+		Text with emojis replaced by ASCII equivalents
+	"""
+	if not text:
+		return text
+
+	result = text
+	for emoji, ascii_repr in EMOJI_TO_ASCII.items():
+		result = result.replace(emoji, ascii_repr)
+
+	# Remove any remaining emoji/unicode characters that can't be encoded
+	# This catches emojis not in our mapping
+	try:
+		# Try to encode as the current stdout encoding
+		encoding = getattr(sys.stdout, 'encoding', 'utf-8') or 'utf-8'
+		result.encode(encoding)
+	except (UnicodeEncodeError, LookupError):
+		# If encoding fails, remove problematic characters
+		result = result.encode('ascii', errors='ignore').decode('ascii')
+
+	return result
+
+
+def is_windows_legacy_encoding() -> bool:
+	"""Check if we're on Windows with a legacy encoding that doesn't support emoji.
+
+	Returns:
+		True if on Windows with cp1251, cp1252, or similar legacy encodings
+	"""
+	if platform.system() != 'Windows':
+		return False
+
+	encoding = getattr(sys.stdout, 'encoding', 'utf-8') or 'utf-8'
+	encoding = encoding.lower().replace('-', '').replace('_', '')
+
+	# Legacy Windows codepages that don't support emoji
+	legacy_encodings = {'cp1251', 'cp1252', 'cp1250', 'cp1253', 'cp1254', 'cp1255', 'cp1256', 'cp1257', 'cp1258', 'cp866', 'latin1', 'iso88591'}
+
+	return encoding in legacy_encodings
+
+
+def safe_print(msg: str, **kwargs) -> None:
+	"""Print a message with emoji sanitization for Windows compatibility.
+
+	This wraps print() to handle UnicodeEncodeError on Windows systems
+	with legacy encodings like cp1251.
+
+	Args:
+		msg: The message to print
+		**kwargs: Additional arguments to pass to print()
+	"""
+	if is_windows_legacy_encoding():
+		msg = sanitize_emoji(msg)
+	print(msg, **kwargs)
+
 
 # Pre-compiled regex for URL detection - used in URL shortening
 URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', re.IGNORECASE)
@@ -105,7 +228,7 @@ class SignalHandler:
 			if self.is_windows:
 				# On Windows, use simple signal handling with immediate exit on Ctrl+C
 				def windows_handler(sig, frame):
-					print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
+					print('\n\n[STOP] Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
 					# Run the custom exit callback if provided
 					if self.custom_exit_callback:
 						self.custom_exit_callback()
@@ -162,7 +285,7 @@ class SignalHandler:
 					logger.error(f'Error in exit callback: {e}')
 
 		# Force immediate exit - more reliable than sys.exit()
-		print('\n\n🛑  Got second Ctrl+C. Exiting immediately...\n', file=stderr)
+		print('\n\n[STOP] Got second Ctrl+C. Exiting immediately...\n', file=stderr)
 
 		# Reset terminal to a clean state by sending multiple escape sequences
 		# Order matters for terminal resets - we try different approaches
@@ -240,7 +363,7 @@ class SignalHandler:
 		global _exiting
 		if not _exiting:
 			_exiting = True
-			print('\n\n🛑 SIGTERM received. Exiting immediately...\n\n', file=stderr)
+			print('\n\n[STOP] SIGTERM received. Exiting immediately...\n\n', file=stderr)
 
 			# Call custom exit callback if provided
 			if self.custom_exit_callback:
@@ -297,7 +420,7 @@ class SignalHandler:
 
 		try:  # escape code is to blink the ...
 			print(
-				f'➡️  Press {green}[Enter]{reset} to resume or {red}[Ctrl+C]{reset} again to exit{blink}...{unblink} ',
+				f'[->] Press {green}[Enter]{reset} to resume or {red}[Ctrl+C]{reset} again to exit{blink}...{unblink} ',
 				end='',
 				flush=True,
 				file=stderr,
