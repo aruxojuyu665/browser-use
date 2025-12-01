@@ -50,6 +50,12 @@ class ChatOpenRouter(BaseChatModel):
 	_strict_response_validation: bool = False
 	extra_body: dict[str, Any] | None = None
 
+	# Anthropic compatibility mode
+	# None = auto-detect based on model name
+	# True = force Anthropic-compatible schema optimization
+	# False = use full JSON Schema with validation constraints
+	anthropic_compatible_mode: bool | None = None
+
 	# Static
 	@property
 	def provider(self) -> str:
@@ -94,6 +100,16 @@ class ChatOpenRouter(BaseChatModel):
 	@property
 	def name(self) -> str:
 		return str(self.model)
+
+	def _is_anthropic_model(self) -> bool:
+		"""
+		Detect if the model is from Anthropic based on model name.
+
+		Returns:
+		    True if model appears to be from Anthropic (contains 'anthropic' or 'claude')
+		"""
+		model_lower = self.model.lower()
+		return 'anthropic' in model_lower or 'claude' in model_lower
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		"""Extract usage information from the OpenRouter response."""
@@ -159,8 +175,25 @@ class ChatOpenRouter(BaseChatModel):
 				)
 
 			else:
+				# Determine if we need Anthropic-compatible schema optimization
+				# Auto-detect or use explicit setting
+				use_anthropic_mode = (
+					self.anthropic_compatible_mode
+					if self.anthropic_compatible_mode is not None
+					else self._is_anthropic_model()
+				)
+
 				# Create a JSON schema for structured output
-				schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+				# Anthropic models don't support validation constraints (minimum, maximum, etc.)
+				if use_anthropic_mode:
+					schema = SchemaOptimizer.create_optimized_json_schema(
+						output_format,
+						remove_validation_constraints=True,
+						remove_min_items=True,
+						remove_defaults=True,
+					)
+				else:
+					schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 
 				response_format_schema: JSONSchema = {
 					'name': 'agent_output',

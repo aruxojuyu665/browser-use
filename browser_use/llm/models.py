@@ -19,6 +19,7 @@ from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.openrouter.chat import ChatOpenRouter
 
 # Optional OCI import
 try:
@@ -77,6 +78,11 @@ cerebras_qwen_3_coder_480b: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
+
+openrouter_anthropic_claude_3_5_sonnet: 'BaseChatModel'
+openrouter_anthropic_claude_4_5_sonnet: 'BaseChatModel'
+openrouter_openai_gpt_4o: 'BaseChatModel'
+openrouter_openai_gpt_4o_mini: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -175,8 +181,20 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('BROWSER_USE_API_KEY')
 		return ChatBrowserUse(model=model, api_key=api_key)
 
+	# OpenRouter Models
+	elif provider == 'openrouter':
+		from browser_use.llm.openrouter.chat import ChatOpenRouter
+
+		api_key = os.getenv('OPENROUTER_API_KEY')
+		if not api_key:
+			raise ValueError('OPENROUTER_API_KEY is not set')
+		# Convert underscores to slashes for OpenRouter model names
+		# e.g., openrouter_anthropic_claude_3_5_sonnet -> anthropic/claude-3.5-sonnet
+		model = model_part.replace('_', '/', 1).replace('_', '-')
+		return ChatOpenRouter(model=model, api_key=api_key)
+
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu', 'openrouter']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -198,6 +216,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatCerebras  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
+	elif name == 'ChatOpenRouter':
+		return ChatOpenRouter  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -213,6 +233,7 @@ __all__ = [
 	'ChatGoogle',
 	'ChatCerebras',
 	'ChatBrowserUse',
+	'ChatOpenRouter',
 ]
 
 if OCI_AVAILABLE:
@@ -265,6 +286,11 @@ __all__ += [
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',
+	# OpenRouter instances - created on demand
+	'openrouter_anthropic_claude_3_5_sonnet',
+	'openrouter_anthropic_claude_4_5_sonnet',
+	'openrouter_openai_gpt_4o',
+	'openrouter_openai_gpt_4o_mini',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required

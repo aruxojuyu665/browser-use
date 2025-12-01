@@ -14,6 +14,7 @@ class SchemaOptimizer:
 		*,
 		remove_min_items: bool = False,
 		remove_defaults: bool = False,
+		remove_validation_constraints: bool = False,
 	) -> dict[str, Any]:
 		"""
 		Create the most optimized schema by flattening all $ref/$defs while preserving
@@ -23,6 +24,8 @@ class SchemaOptimizer:
 			model: The Pydantic model to optimize
 			remove_min_items: If True, remove minItems from the schema
 			remove_defaults: If True, remove default values from the schema
+			remove_validation_constraints: If True, remove validation constraints (minimum, maximum, minLength, maxLength, pattern)
+				Useful for Anthropic models which don't support these constraints in structured output
 
 		Returns:
 			Optimized schema with all $refs resolved and strict mode compatibility
@@ -159,11 +162,11 @@ class SchemaOptimizer:
 		ensure_additional_properties_false(optimized_schema)
 		SchemaOptimizer._make_strict_compatible(optimized_schema)
 
-		# Final pass to remove minItems/min_items and default values if requested
-		if remove_min_items or remove_defaults:
+		# Final pass to remove minItems/min_items, default values, and validation constraints if requested
+		if remove_min_items or remove_defaults or remove_validation_constraints:
 
 			def remove_forbidden_fields(obj: Any) -> None:
-				"""Recursively remove minItems/min_items and default values"""
+				"""Recursively remove minItems/min_items, default values, and validation constraints"""
 				if isinstance(obj, dict):
 					# Remove forbidden keys
 					if remove_min_items:
@@ -171,6 +174,13 @@ class SchemaOptimizer:
 						obj.pop('min_items', None)
 					if remove_defaults:
 						obj.pop('default', None)
+					if remove_validation_constraints:
+						# Remove validation constraints not supported by Anthropic
+						obj.pop('minimum', None)
+						obj.pop('maximum', None)
+						obj.pop('minLength', None)
+						obj.pop('maxLength', None)
+						obj.pop('pattern', None)
 					# Recursively process all values
 					for value in obj.values():
 						if isinstance(value, (dict, list)):
