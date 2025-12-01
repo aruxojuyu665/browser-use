@@ -1,7 +1,3 @@
-# User
-.userdocs/
-userdocs/
-
 # Cache files
 .DS_Store
 __pycache__/
