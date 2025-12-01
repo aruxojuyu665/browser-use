@@ -85,6 +85,13 @@ llm = ChatOpenRouter(
     anthropic_compatible_mode=None,  # None = авто-детекция
                                      # True = принудительно
                                      # False = отключить
+
+    # Fallback (v0.0.4+)
+    fallback_models=['anthropic/claude-3.5-sonnet', 'openai/gpt-4o'],  # резервные модели
+    on_fallback=lambda from_m, to_m, err: print(f"Fallback: {from_m} -> {to_m}"),
+
+    # Metrics (v0.0.4+)
+    track_metrics=True,           # включить сбор метрик
 )
 ```
 
@@ -310,6 +317,141 @@ async def main():
 asyncio.run(main())
 ```
 
+## Автоматический fallback между моделями (v0.0.4+)
+
+Если основная модель недоступна (rate limit, ошибка сервера), автоматически переключается на резервную.
+
+### Настройка fallback
+
+```python
+from browser_use.llm import ChatOpenRouter
+
+llm = ChatOpenRouter(
+    model='anthropic/claude-4.5-sonnet',
+    api_key=key,
+    fallback_models=['anthropic/claude-3.5-sonnet', 'openai/gpt-4o'],
+)
+
+# При ошибке claude-4.5-sonnet:
+# 1. Попробует claude-3.5-sonnet
+# 2. Если не получится - попробует gpt-4o
+# 3. Если все не получилось - выбросит исключение
+```
+
+### Callback для уведомлений
+
+```python
+def on_fallback(from_model: str, to_model: str, error: Exception):
+    print(f"Switching from {from_model} to {to_model}")
+    # Можно добавить логирование, алерты и т.д.
+
+llm = ChatOpenRouter(
+    model='anthropic/claude-4.5-sonnet',
+    api_key=key,
+    fallback_models=['openai/gpt-4o'],
+    on_fallback=on_fallback,
+)
+```
+
+### Проверка активной модели
+
+```python
+# После вызова ainvoke() можно проверить какая модель использовалась
+result = await llm.ainvoke(messages)
+print(f"Used model: {llm.active_model}")  # может отличаться от primary если был fallback
+```
+
+---
+
+## Мониторинг и метрики (v0.0.4+)
+
+Встроенный сбор метрик для отслеживания использования, производительности и затрат.
+
+### Включение метрик
+
+```python
+from browser_use.llm import ChatOpenRouter
+
+llm = ChatOpenRouter(
+    model='anthropic/claude-4.5-sonnet',
+    api_key=key,
+    track_metrics=True,  # включить сбор метрик
+)
+
+# После выполнения запросов
+metrics = llm.get_metrics()
+print(f"Total requests: {metrics.total_requests}")
+print(f"Total tokens: {metrics.total_tokens}")
+print(f"Average latency: {metrics.average_latency_ms:.1f}ms")
+print(f"Estimated cost: ${metrics.cost_estimate_usd:.4f}")
+```
+
+### Доступные метрики
+
+```python
+from browser_use.llm.metrics import LLMMetrics
+
+metrics: LLMMetrics = llm.get_metrics()
+
+# Счетчики запросов
+metrics.total_requests        # всего запросов
+metrics.successful_requests   # успешных
+metrics.failed_requests       # неудачных
+metrics.fallback_count        # количество fallback'ов
+
+# Токены
+metrics.total_prompt_tokens      # токены в промптах
+metrics.total_completion_tokens  # токены в ответах
+metrics.total_tokens             # всего токенов
+metrics.total_cached_tokens      # кэшированных токенов
+
+# Производительность
+metrics.average_latency_ms    # средняя задержка в мс
+
+# Стоимость
+metrics.cost_estimate_usd     # оценка затрат в USD
+```
+
+### Экспорт метрик
+
+```python
+# JSON формат
+data = metrics.to_dict()
+
+# Prometheus формат
+prometheus_output = metrics.to_prometheus()
+
+# Breakdown по моделям
+breakdown = metrics.get_model_breakdown()
+for model, stats in breakdown.items():
+    print(f"{model}: {stats['requests']} requests, ${stats['cost_usd']:.4f}")
+```
+
+### Быстрый доступ к стоимости
+
+```python
+# Короткий способ получить оценку затрат
+cost = llm.get_estimated_cost()
+print(f"Total cost: ${cost:.4f}")
+```
+
+### Внешний экземпляр метрик
+
+```python
+from browser_use.llm.metrics import LLMMetrics
+
+# Создаем общий экземпляр для нескольких клиентов
+shared_metrics = LLMMetrics()
+
+llm1 = ChatOpenRouter(model='anthropic/claude-4.5-sonnet', api_key=key, metrics=shared_metrics)
+llm2 = ChatOpenRouter(model='openai/gpt-4o', api_key=key, metrics=shared_metrics)
+
+# Все запросы агрегируются в shared_metrics
+print(f"Combined cost: ${shared_metrics.cost_estimate_usd:.4f}")
+```
+
+---
+
 ## Расширенная детекция провайдеров (v0.0.3+)
 
 Browser-Use автоматически определяет провайдера по имени модели и применяет соответствующую оптимизацию schema.
@@ -358,4 +500,5 @@ schema = SchemaOptimizer.create_schema_for_provider(MyModel, 'anthropic/claude-4
 
 - Добавлено в версии: `0.0.2`
 - Расширенная детекция провайдеров: `0.0.3`
+- Fallback и метрики: `0.0.4`
 - Последнее обновление: 2025-12-01
