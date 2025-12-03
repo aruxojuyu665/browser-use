@@ -5,6 +5,37 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
 проект следует принципам [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.0.4] - 2025-12-01
+
+### Added
+- **Automatic Model Fallback**: Resilient model switching on failures
+  - `fallback_models: list[str]` parameter for backup models
+  - `on_fallback: Callable` callback for fallback notifications
+  - `active_model` property to check which model was used
+  - Automatic retry on RateLimitError, APIConnectionError, APIStatusError
+- **LLM Metrics Tracking**: Comprehensive usage monitoring
+  - New `browser_use/llm/metrics.py` module
+  - `LLMMetrics` class with request/token/latency tracking
+  - `RequestMetrics` class for individual request data
+  - `track_metrics: bool` parameter to enable tracking
+  - `get_metrics()` method to access metrics instance
+- **Cost Estimation**: Real-time cost tracking
+  - `ModelPricing` class with per-model pricing
+  - `KNOWN_MODEL_PRICING` database for common models
+  - `cost_estimate_usd` property for total cost
+  - `get_estimated_cost()` shortcut method
+- **Metrics Export**: Multiple export formats
+  - `to_dict()` for JSON export
+  - `to_prometheus()` for Prometheus format
+  - `get_model_breakdown()` for per-model statistics
+
+### Changed
+- `ChatOpenRouter.ainvoke()` now supports fallback chain execution
+- Refactored `_invoke_with_model()` to track timing and metrics
+- Added `_record_metrics()`, `_log_fallback()`, `_notify_fallback()` helper methods
+
+---
+
 ## [0.0.3] - 2025-12-01
 
 ### Added
